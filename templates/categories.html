@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Categories - AI News Hub</title>
+    <link rel="icon" href="static/uploads/L.png" type="image/x-icon">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/flowbite@2.5.2/dist/flowbite.min.css" rel="stylesheet" />
+</head>
+
+<body class="bg-gray-900 text-gray-100 font-sans leading-normal tracking-normal">
+
+    <!-- Navbar -->
+    <nav class="bg-gray-800 shadow-md">
+        <div class="container mx-auto px-4">
+            <div class="flex justify-between items-center py-4">
+                <a href="/" class="text-2xl font-semibold text-gray-100 flex items-center space-x-2"> <img src="static\uploads\L.png" alt="Logo" class="h-8 w-8"> 
+                    <span>AI News Hub</span> 
+                </a>
+                <div class="hidden md:flex space-x-4">
+                    <a href="/" class="text-white bg-orange-500 hover:bg-orange-600 focus:outline-none focus:ring-4 focus:ring-orange-200 font-medium rounded-full text-sm px-5 py-2.5 text-center">Home</a>
+                    <a href="saved" class="text-white bg-orange-500 hover:bg-orange-600 focus:outline-none focus:ring-4 focus:ring-orange-200 font-medium rounded-full text-sm px-5 py-2.5 text-center">Saved Articles</a>
+                </div>
+                {% if session.loggedin %}
+                <div class="flex items-center space-x-4">
+                    <span class="text-gray-300">Welcome, {{ session.name }}!</span>
+                    <a href="logout" class="text-white bg-orange-500 hover:bg-orange-600 focus:outline-none focus:ring-4 focus:ring-orange-200 font-medium rounded-full text-sm px-5 py-2.5 text-center">Logout</a>
+                </div>
+                {% else %}
+                <div>
+                    <a href="login" class="text-white bg-orange-500 hover:bg-orange-600 focus:outline-none focus:ring-4 focus:ring-orange-200 font-medium rounded-full text-sm px-5 py-2.5 text-center">Login</a>
+                </div>
+                {% endif %}
+                <div class="md:hidden">
+                    <button id="menu-toggle" class="text-gray-300 hover:text-gray-100 focus:outline-none">☰</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mobile Menu -->
+        <div id="mobile-menu" class="hidden md:hidden px-4 pb-4">
+            <a href="/" class="block text-white bg-orange-500 hover:bg-orange-600 font-medium rounded-full text-sm px-5 py-2.5 text-center">Home</a>
+            <a href="saved" class="block text-white bg-orange-500 hover:bg-orange-600 font-medium rounded-full text-sm px-5 py-2.5 text-center">Saved Articles</a>
+            <hr class="my-2">
+            {% if session.loggedin %}
+            <a href="logout" class="block text-white bg-orange-500 hover:bg-orange-600 font-medium rounded-full text-sm px-5 py-2.5 text-center">Logout</a>
+            {% else %}
+            <a href="login" class="block text-white bg-orange-500 hover:bg-orange-600 font-medium rounded-full text-sm px-5 py-2.5 text-center">Login</a>
+            {% endif %}
+        </div>
+    </nav>
+
+    <!-- Categories Content -->
+    <div class="container mx-auto px-4 py-6">
+        <h1 class="text-3xl font-bold text-gray-100">Categories</h1>
+        <p class="text-gray-400 mt-2">Explore articles by category and access AI-powered summaries for each.</p>
+        
+        <!-- Category Dropdown -->
+        <div class="mb-4">
+            <label for="category-select" class="block mb-2 text-sm font-medium text-gray-400">Select a Category</label>
+            <select id="category-select" class="block w-full p-2.5 bg-gray-800 border border-gray-700 text-gray-400 rounded-lg focus:ring-orange-500 focus:border-orange-500">
+                <option value="technology">Technology</option>
+                <option value="science">Science</option>
+                <option value="health">Health</option>
+                <option value="business">Business</option>
+            </select>
+        </div>
+
+        <!-- News Articles -->
+        <div id="news-articles" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+    </div>
+
+    <!-- Tailwind JavaScript for mobile menu -->
+    <script>
+        // Toggle mobile menu
+        const menuToggle = document.getElementById('menu-toggle');
+        const mobileMenu = document.getElementById('mobile-menu');
+        menuToggle.addEventListener('click', () => {
+            mobileMenu.classList.toggle('hidden');
+        });
+
+        // Fetch news articles based on selected category
+        async function fetchNews(category) {
+    try {
+        const response = await fetch(`/category/${category}`);
+        const data = await response.json();
+
+        const newsContainer = document.getElementById('news-articles');
+        newsContainer.innerHTML = '';
+
+        data.articles.forEach(article => {
+            const newsCard = `
+                <div class="bg-gray-800 rounded-lg shadow-md p-4">
+                    ${article.urlToImage ? `<img src="${article.urlToImage}" alt="${article.title}" class="w-full h-48 object-cover rounded-lg mb-4">` : ''}
+                    <a href="${article.url}" target="_blank" class="text-xl font-semibold text-gray-100 mt-2 cursor-pointer hover:text-orange-400">${article.title}</a>
+                    <div class="mt-2">
+                        <button onclick="showFullArticle('${article.url}')" class="text-white bg-orange-500 hover:bg-orange-600 focus:outline-none focus:ring-4 focus:ring-orange-200 font-medium rounded-full text-sm px-5 py-2.5 text-center me-2 mb-2">Read more</button>
+                        <button onclick="summarizeArticle('${article.description || ''}', '${article.url}')" class="text-white bg-orange-500 hover:bg-orange-600 focus:outline-none focus:ring-4 focus:ring-orange-200 font-medium rounded-full text-sm px-5 py-2.5 text-center me-2 mb-2 ml-4">Summarize</button>
+                        <button onclick="saveArticle('${article.title}', '${article.url}')" class="text-white bg-orange-500 hover:bg-orange-600 focus:outline-none focus:ring-4 focus:ring-orange-200 font-medium rounded-full text-sm px-5 py-2.5 text-center me-2 mb-2 ml-4">Save</button>
+                    </div>
+                    <p id="summary-${article.url}" class="text-gray-400 mt-2"></p>
+                </div>
+            `;
+            newsContainer.insertAdjacentHTML('beforeend', newsCard);
+        });
+    } catch (error) {
+        console.error("Error fetching news:", error);
+        alert("Error fetching news articles.");
+    }
+}
+
+
+document.getElementById('category-select').addEventListener('change', (event) => {
+    fetchNews(event.target.value);
+});
+
+window.onload = () => fetchNews(document.getElementById('category-select').value);
+
+
+        async function summarizeArticle(description, url) {
+            try {
+                if (!description) {
+                    alert("No description available for summarization.");
+                    return;
+                }
+
+                const summaryResponse = await fetch('/summarize_article', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ content: description })
+                });
+                const summaryData = await summaryResponse.json();
+
+                if (summaryData.summary) {
+                    const summaryElement = document.getElementById(`summary-${url}`);
+                    summaryElement.innerText = summaryData.summary;
+                } else {
+                    alert("Error summarizing the article.");
+                }
+            } catch (error) {
+                console.error("Error summarizing article:", error);
+                alert("Error summarizing the article.");
+            }
+        }
+
+        async function saveArticle(title, url) {
+            try {
+                const response = await fetch('/save_article', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ title: title, url: url })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    alert("Article saved successfully!");
+                } else {
+                    alert("Error saving article: " + data.error);
+                }
+            } catch (error) {
+                console.error("Error saving article:", error);
+                alert("Error saving article.");
+            }
+        }
+
+        document.getElementById('category-select').addEventListener('change', (event) => {
+            fetchNews(event.target.value);
+        });
+
+        window.onload = () => fetchNews(document.getElementById('category-select').value);
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/flowbite@2.5.2/dist/flowbite.min.js"></script>
+</body>
+
+</html>

@@ -6,7 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI News Hub</title>
     <link rel="icon" href="static/uploads/L.png" type="image/x-icon">
-
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" as="style">
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/flowbite@2.5.2/dist/flowbite.min.css" as="style">
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/flowbite@2.5.2/dist/flowbite.min.css" rel="stylesheet" />
 </head>
@@ -71,114 +72,200 @@
 <!-- Latest News Section -->
 <div id="news-container" class="container mx-auto px-4 py-6">
     <h2 class="text-2xl font-bold text-gray-100 mb-4">Latest News</h2>
+    <div id="loading" class="text-center py-4 hidden">
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto"></div>
+    </div>
     <div id="news-articles" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
 </div>
 
 <!-- Tailwind JavaScript for mobile menu and news fetching -->
 <script>
-    // Toggle mobile menu
-    const menuToggle = document.getElementById('menu-toggle');
-    const mobileMenu = document.getElementById('mobile-menu');
-    menuToggle.addEventListener('click', () => {
-        mobileMenu.classList.toggle('hidden');
-    });
+    // Utility functions
+    const debounce = (func, wait) => {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    };
 
-    // Fetch latest news
+    const showLoading = () => document.getElementById('loading').classList.remove('hidden');
+    const hideLoading = () => document.getElementById('loading').classList.add('hidden');
+
+    // Intersection Observer for lazy loading
+    const observeImages = () => {
+        const imageObserver = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const img = entry.target;
+                    img.src = img.dataset.src;
+                    img.classList.remove('opacity-0');
+                    observer.unobserve(img);
+                }
+            });
+        });
+
+        document.querySelectorAll('img[data-src]').forEach(img => {
+            imageObserver.observe(img);
+        });
+    };
+
+    // Error handling
+    const handleError = (error) => {
+        console.error('Error:', error);
+        const newsContainer = document.getElementById('news-articles');
+        newsContainer.innerHTML = `
+            <div class="col-span-full text-center text-red-500">
+                <p>Failed to load news. Please try again later.</p>
+            </div>
+        `;
+        hideLoading();
+    };
+
+    // Fetch and render news
     async function fetchNews() {
         try {
+            showLoading();
             const response = await fetch('/latest-news');
+            if (!response.ok) throw new Error('Network response was not ok');
             const data = await response.json();
 
-            if (data.articles) {
+            if (data.articles?.length) {
                 const newsContainer = document.getElementById('news-articles');
                 newsContainer.innerHTML = '';
 
+                const fragment = document.createDocumentFragment();
                 data.articles.forEach(article => {
-                    const newsCard = `
-                        <div class="bg-gray-800 rounded-lg shadow-md p-4">
-                            ${article.urlToImage ? `<img src="${article.urlToImage}" alt="${article.title}" class="w-full h-48 object-cover rounded-lg mb-4">` : ''}
-                            <h2 onclick="showFullArticle('${article.url}')" class="text-xl font-semibold text-gray-100 mt-2 cursor-pointer hover:text-orange-400">${article.title}</h2>
-                            
-                            <div class="mt-2">
-                                <button onclick="showFullArticle('${article.url}')" class="text-white bg-orange-500 hover:bg-orange-600 focus:outline-none focus:ring-4 focus:ring-orange-200 font-medium rounded-full text-sm px-5 py-2.5 text-center me-2 mb-2 dark:bg-orange-500 dark:hover:bg-orange-600 dark:focus:ring-orange-700">Read more</button>
-                                <button onclick="summarizeArticle('${article.description || ''}', '${article.url}')" class="text-white bg-orange-500 hover:bg-orange-600 focus:outline-none focus:ring-4 focus:ring-orange-200 font-medium rounded-full text-sm px-5 py-2.5 text-center me-2 mb-2 dark:bg-orange-500 dark:hover:bg-orange-600 dark:focus:ring-orange-700 ml-4">Summarize</button>
-                                <button onclick="saveArticle('${article.title}', '${article.url}')" class="text-white bg-orange-500 hover:bg-orange-600 focus:outline-none focus:ring-4 focus:ring-orange-200 font-medium rounded-full text-sm px-5 py-2.5 text-center me-2 mb-2 dark:bg-orange-500 dark:hover:bg-orange-600 dark:focus:ring-orange-700 ml-4">Save</button>
-                            </div>
-                            <p id="summary-${article.url}" class="text-gray-400 mt-2"></p>
+                    const articleElement = document.createElement('div');
+                    articleElement.className = 'bg-gray-800 rounded-lg shadow-md p-4 transform transition duration-200 hover:scale-105';
+                    articleElement.innerHTML = `
+                        ${article.urlToImage ? 
+                            `<img 
+                                data-src="${article.urlToImage}" 
+                                alt="${article.title}" 
+                                class="w-full h-48 object-cover rounded-lg mb-4 opacity-0 transition-opacity duration-300"
+                                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+                            >` : ''}
+                        <h2 class="text-xl font-semibold text-gray-100 mt-2 cursor-pointer hover:text-orange-400">${article.title}</h2>
+                        <div class="mt-2 space-x-2">
+                            <button 
+                                onclick="showFullArticle('${article.url}')"
+                                class="text-white bg-orange-500 hover:bg-orange-600 focus:ring-4 focus:ring-orange-200 font-medium rounded-full text-sm px-5 py-2.5 transition-colors duration-200">
+                                Read more
+                            </button>
+                            <button 
+                                onclick="summarizeArticle('${encodeURIComponent(article.description || '')}', '${article.url}')"
+                                class="text-white bg-orange-500 hover:bg-orange-600 focus:ring-4 focus:ring-orange-200 font-medium rounded-full text-sm px-5 py-2.5 transition-colors duration-200">
+                                Summarize
+                            </button>
+                            <button 
+                                onclick="saveArticle('${encodeURIComponent(article.title)}', '${article.url}')"
+                                class="text-white bg-orange-500 hover:bg-orange-600 focus:ring-4 focus:ring-orange-200 font-medium rounded-full text-sm px-5 py-2.5 transition-colors duration-200">
+                                Save
+                            </button>
                         </div>
+                        <p id="summary-${article.url}" class="text-gray-400 mt-2"></p>
                     `;
-                    newsContainer.insertAdjacentHTML('beforeend', newsCard);
+                    fragment.appendChild(articleElement);
                 });
+
+                newsContainer.appendChild(fragment);
+                observeImages();
             } else {
-                alert("No news articles available.");
+                throw new Error('No articles available');
             }
         } catch (error) {
-            console.error("Error fetching news:", error);
-            alert("Error fetching news articles.");
+            handleError(error);
+        } finally {
+            hideLoading();
         }
     }
 
-    function showFullArticle(url) {
-        window.open(url, '_blank');
-    }
+    const showFullArticle = (url) => {
+        window.open(url, '_blank', 'noopener,noreferrer');
+    };
 
-    async function summarizeArticle(description, url) {
+    const summarizeArticle = debounce(async (description, url) => {
         try {
-            if (!description) {
-                alert("No description available for summarization.");
-                return;
-            }
+            const summaryElement = document.getElementById(`summary-${url}`);
+            summaryElement.innerHTML = '<div class="animate-pulse">Summarizing...</div>';
 
-            const summaryResponse = await fetch('/summarize_article', {
+            const response = await fetch('/summarize_article', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ content: description })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: decodeURIComponent(description) })
             });
-            const summaryData = await summaryResponse.json();
 
-            if (summaryData.summary) {
-                const summaryElement = document.getElementById(`summary-${url}`);
-                summaryElement.innerText = summaryData.summary;
+            const data = await response.json();
+            if (data.summary) {
+                summaryElement.innerHTML = `<div class="mt-2 p-2 bg-gray-700 rounded">${data.summary}</div>`;
             } else {
-                alert("Error summarizing the article.");
+                throw new Error(data.error || 'Failed to summarize');
             }
         } catch (error) {
-            console.error("Error summarizing article:", error);
-            alert("Error summarizing the article.");
+            console.error('Summarization error:', error);
+            document.getElementById(`summary-${url}`).innerHTML = 
+                '<div class="text-red-500">Failed to generate summary</div>';
         }
-    }
+    }, 300);
 
-    async function saveArticle(title, url) {
+    const saveArticle = debounce(async (title, url) => {
         try {
             const response = await fetch('/save_article', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ title: title, url: url })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    title: decodeURIComponent(title), 
+                    url: url 
+                })
             });
+            
             const data = await response.json();
-
             if (data.success) {
-                alert("Article saved successfully!");
+                showNotification('Article saved successfully!');
             } else {
-                alert("Error saving article: " + data.error);
+                throw new Error(data.error || 'Failed to save article');
             }
         } catch (error) {
-            console.error("Error saving article:", error);
-            alert("Error saving article.");
+            console.error('Save error:', error);
+            showNotification('Failed to save article', 'error');
         }
-    }
+    }, 300);
 
-    window.onload = fetchNews;
+    const showNotification = (message, type = 'success') => {
+        const notification = document.createElement('div');
+        notification.className = `fixed bottom-4 right-4 p-4 rounded-lg ${
+            type === 'success' ? 'bg-green-500' : 'bg-red-500'
+        } text-white transition-opacity duration-300`;
+        notification.textContent = message;
+        document.body.appendChild(notification);
+        setTimeout(() => {
+            notification.style.opacity = '0';
+            setTimeout(() => notification.remove(), 300);
+        }, 3000);
+    };
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', fetchNews);
+
+    // Mobile menu toggle
+    const menuToggle = document.getElementById('menu-toggle');
+    const mobileMenu = document.getElementById('mobile-menu');
+    if (menuToggle && mobileMenu) {
+        menuToggle.addEventListener('click', () => {
+            mobileMenu.classList.toggle('hidden');
+        });
+    }
 </script>
 
 
     
     
-    <script src="https://cdn.jsdelivr.net/npm/flowbite@2.5.2/dist/flowbite.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/flowbite@2.5.2/dist/flowbite.min.js"></script>
 
 </body>
 

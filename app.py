@@ -8,6 +8,8 @@ import os
 from dotenv import load_dotenv
 import random
 from supabase import create_client
+from functools import lru_cache
+import time
 
 # Load environment variables
 load_dotenv()
@@ -25,37 +27,56 @@ supabase = create_client(
 NEWSAPI_KEY = os.getenv('NEWSAPI_KEY')
 NEWSAPI_URL = "https://newsapi.org/v2/top-headlines"
 
-summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+# Initialize summarizer with device='cuda' if available
+import torch
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+summarizer = pipeline("summarization", model="facebook/bart-large-cnn", device=device)
 
-app.config['MAIL_SERVER'] = 'smtp.gmail.com' 
-app.config['MAIL_PORT'] = 587 
-app.config['MAIL_USE_TLS'] = True 
-app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME') 
+# Email configuration
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 mail = Mail(app)
 
-# Fetch news from NewsAPI
-def fetch_news(category="general"):
+# Cache configuration
+NEWS_CACHE_TIMEOUT = 300  # 5 minutes cache
+
+@lru_cache(maxsize=10)
+def fetch_news_cached(category, timestamp):
+    """Cached version of news fetching with timestamp to control cache invalidation"""
     params = {
         "apiKey": NEWSAPI_KEY,
         "category": category,
         "language": "en",
-        "country": "us"
+        "country": "us",
+        "pageSize": 100  # Maximize articles per request
     }
     try:
-        response = requests.get(NEWSAPI_URL, params=params)
+        response = requests.get(NEWSAPI_URL, params=params, timeout=5)  # Add timeout
         response.raise_for_status()
         data = response.json()
         articles = data.get("articles", [])
         
-        # Filter articles with at least 150 characters in their content
-        filtered_articles = [article for article in articles if article.get("content") and len(article["content"]) >= 50]
+        # Filter and process articles more efficiently
+        filtered_articles = [
+            {k: v for k, v in article.items() if k in ['title', 'description', 'url', 'urlToImage', 'content']}
+            for article in articles
+            if article.get("content") and len(article["content"]) >= 50
+        ]
         return filtered_articles
     except requests.exceptions.RequestException as e:
         app.logger.error(f'Error fetching news: {str(e)}')
         return None
 
-# Routes
+def get_cached_news(category="general"):
+    """Get news with cache invalidation control"""
+    # Use current timestamp rounded to 5 minutes to control cache
+    timestamp = int(time.time() / NEWS_CACHE_TIMEOUT) * NEWS_CACHE_TIMEOUT
+    return fetch_news_cached(category, timestamp)
+
+# Routes optimization
 @app.route('/')
 def index():
     if 'loggedin' in session:
@@ -65,7 +86,7 @@ def index():
 @app.route('/latest-news', methods=["GET"])
 def get_latest_news():
     category = request.args.get("category", "general")
-    news_data = fetch_news(category)
+    news_data = get_cached_news(category)
     if news_data:
         return jsonify({"articles": news_data})
     return jsonify({"error": "Unable to fetch news"})
@@ -107,17 +128,26 @@ def summarize_article():
     data = request.json
     article_content = data.get('content')
 
-    if article_content:
-        max_input_length = 10000
+    if not article_content:
+        return jsonify({'error': 'No content provided for summarization'})
+
+    try:
+        # Optimize content length for processing
+        max_input_length = 1024  # Reduced for better performance
         article_content = article_content[:max_input_length]
 
-        try:
-            summary = summarizer(article_content, max_length=100, min_length=35, do_sample=False)
-            return jsonify({'summary': summary[0]['summary_text']})
-        except Exception as e:
-            app.logger.error(f'Summarization error: {str(e)}')
-            return jsonify({'error': f'Summarization error: {str(e)}'})
-    return jsonify({'error': 'No content provided for summarization'})
+        summary = summarizer(
+            article_content,
+            max_length=100,
+            min_length=30,
+            do_sample=False,
+            num_beams=2,  # Add beam search for better quality
+            early_stopping=True
+        )
+        return jsonify({'summary': summary[0]['summary_text']})
+    except Exception as e:
+        app.logger.error(f'Summarization error: {str(e)}')
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
@@ -189,7 +219,7 @@ def login():
 
 @app.route('/category/<category_name>', methods=["GET"])
 def get_news_by_category(category_name):
-    news_data = fetch_news(category_name)
+    news_data = get_cached_news(category_name)
     if news_data:
         return jsonify({"articles": news_data})
     return jsonify({"error": "Unable to fetch news"})
@@ -224,6 +254,15 @@ def verify_otp():
             flash('Invalid OTP. Please try again.', 'error')
 
     return render_template('verify_otp.html')
+
+# Add error handlers
+@app.errorhandler(404)
+def not_found_error(error):
+    return render_template('404.html'), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return render_template('500.html'), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
